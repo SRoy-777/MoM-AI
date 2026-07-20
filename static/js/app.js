@@ -150,11 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 7. Generate MoM AI Trigger
     const generateMomBtn = document.getElementById("generate-mom-btn");
     generateMomBtn.addEventListener("click", async () => {
-        const apiKey = keyInput.value.trim() || localStorage.getItem("MOM_AI_GEMINI_KEY");
-        if (!apiKey) {
-            alert("Google Gemini API Key is required. Please enter your free key in the top-right header.");
-            return;
-        }
+        const apiKey = keyInput.value.trim() || localStorage.getItem("MOM_AI_GEMINI_KEY") || "";
 
         const transcript = window.recorder.fullTranscript;
         const humanNotes = document.getElementById("human-notes-textarea").value;
