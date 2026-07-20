@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 
 logger = logging.getLogger("mom_ai.gemini")
 
@@ -29,8 +30,8 @@ class GeminiMoMService:
         attendees: str = ""
     ) -> Dict[str, Any]:
         """
-        Generates structured Minutes of Meeting (MoM) using Gemini 2.0 Flash (1M+ token window).
-        Fuses full meeting transcript with Human Assistant live notes & manual task assignments.
+        Generates structured Minutes of Meeting (MoM) using Gemini Flash/Pro APIs (1M+ token window).
+        Includes automatic fallback across Gemini 2.0 Flash, 1.5 Flash, 2.5 Flash, and 1.5 Pro to bypass rate limits.
         """
         if not self.client:
             raise ValueError("GEMINI_API_KEY is not configured. Please provide your Google Gemini API key.")
@@ -100,20 +101,44 @@ Respond STRICTLY with a JSON object matching this schema:
 }}
 """
 
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
+        # List of models to try in sequence if 429 / RESOURCE_EXHAUSTED occurs
+        models_to_try = [
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-flash",
+            "gemini-1.5-pro"
+        ]
 
-            text_output = response.text
-            parsed_mom = json.loads(text_output)
-            return parsed_mom
+        last_error = None
+        for model_name in models_to_try:
+            try:
+                logger.info(f"Attempting MoM generation with model: {model_name}")
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                    ),
+                )
 
-        except Exception as e:
-            logger.error(f"Error calling Gemini API: {e}")
-            raise e
+                text_output = response.text
+                parsed_mom = json.loads(text_output)
+                logger.info(f"Successfully generated MoM using {model_name}")
+                return parsed_mom
+
+            except Exception as e:
+                err_msg = str(e)
+                logger.warning(f"Model {model_name} failed: {err_msg}")
+                last_error = e
+                # If 429 rate limit or quota exceeded, try next model immediately
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+                    continue
+                else:
+                    # Non-quota error, raise
+                    raise e
+
+        # If all models failed, raise the last error
+        if last_error:
+            raise last_error
+        raise RuntimeError("Failed to generate MoM with available Gemini models.")

@@ -8,13 +8,13 @@ class AudioStreamRecorder {
         this.startTime = null;
         this.timerInterval = null;
         this.fullTranscript = "";
+        this.lastInterim = "";
 
         this.onTranscriptUpdate = null;
     }
 
     async startCapture() {
         try {
-            // Request System / Teams Tab audio capture or Microphone fallback
             let stream = null;
             if (navigator.mediaDevices.getDisplayMedia) {
                 try {
@@ -53,11 +53,19 @@ class AudioStreamRecorder {
     stopCapture() {
         this.isRecording = false;
         if (this.timerInterval) clearInterval(this.timerInterval);
+        if (this.lastInterim) {
+            const timeStamp = new Date().toLocaleTimeString();
+            this.fullTranscript += `\n[${timeStamp}] ${this.lastInterim.trim()}`;
+            this.lastInterim = "";
+        }
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
         }
         if (this.recognition) {
-            this.recognition.stop();
+            try { this.recognition.stop(); } catch (e) {}
+        }
+        if (this.onTranscriptUpdate) {
+            this.onTranscriptUpdate(this.fullTranscript, "");
         }
     }
 
@@ -118,36 +126,51 @@ class AudioStreamRecorder {
     _initSpeechRecognition() {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRec) {
-            console.warn("Speech Recognition API not supported in this browser. Please use Chrome/Edge.");
+            console.warn("Speech Recognition API not supported in this browser.");
             return;
         }
 
         this.recognition = new SpeechRec();
         this.recognition.continuous = true;
         this.recognition.interimResults = true;
-        this.recognition.lang = "en-US";
+        this.recognition.maxAlternatives = 1;
 
         this.recognition.onresult = (event) => {
-            let interimTranscript = "";
+            let currentInterim = "";
             for (let i = event.resultIndex; i < event.results.length; ++i) {
+                const transcript = event.results[i][0].transcript;
                 if (event.results[i].isFinal) {
-                    const finalSegment = event.results[i][0].transcript.trim();
-                    const timeStamp = new Date().toLocaleTimeString();
-                    this.fullTranscript += `\n[${timeStamp}] ${finalSegment}`;
+                    const finalSegment = transcript.trim();
+                    if (finalSegment) {
+                        const timeStamp = new Date().toLocaleTimeString();
+                        this.fullTranscript += `\n[${timeStamp}] ${finalSegment}`;
+                    }
+                    this.lastInterim = "";
                 } else {
-                    interimTranscript += event.results[i][0].transcript;
+                    currentInterim += transcript;
                 }
             }
+            if (currentInterim) {
+                this.lastInterim = currentInterim;
+            }
             if (this.onTranscriptUpdate) {
-                this.onTranscriptUpdate(this.fullTranscript, interimTranscript);
+                this.onTranscriptUpdate(this.fullTranscript, currentInterim || this.lastInterim);
             }
         };
 
         this.recognition.onend = () => {
+            if (this.lastInterim.trim()) {
+                const timeStamp = new Date().toLocaleTimeString();
+                this.fullTranscript += `\n[${timeStamp}] ${this.lastInterim.trim()}`;
+                this.lastInterim = "";
+            }
             if (this.isRecording) {
-                // Auto-restart recognition if continuous stream ended
                 try { this.recognition.start(); } catch (e) {}
             }
+        };
+
+        this.recognition.onerror = (e) => {
+            console.warn("Speech recognition error:", e.error);
         };
 
         try { this.recognition.start(); } catch (e) {}
