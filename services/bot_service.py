@@ -36,7 +36,7 @@ class TeamsBotService:
         return {
             "success": True,
             "session_id": session_id,
-            "message": f"Bot '{bot_name}' is joining Teams meeting."
+            "message": f"Bot '{bot_name}' is launching Chromium to join Teams meeting."
         }
 
     async def _run_playwright_bot(self, session_id: str, meeting_url: str, bot_name: str):
@@ -51,7 +51,7 @@ class TeamsBotService:
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                add_log("Launching Chromium browser with silent media streams...")
+                add_log("Launching Chromium browser...")
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
@@ -64,7 +64,6 @@ class TeamsBotService:
                         "--disable-blink-features=AutomationControlled"
                     ]
                 )
-                # Only grant microphone, omit camera permission so Teams keeps camera OFF automatically
                 context = await browser.new_context(
                     permissions=["microphone"],
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -72,96 +71,126 @@ class TeamsBotService:
                 )
                 page = await context.new_page()
 
-                add_log("Navigating to Teams meeting URL...")
+                add_log(f"Navigating to Teams URL: {meeting_url[:60]}...")
                 session_data["status"] = "navigating"
                 await page.goto(meeting_url, wait_until="domcontentloaded", timeout=40000)
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(4000)
 
-                # 1. Bypass "Continue on this browser"
-                add_log("Bypassing launcher prompts...")
-                for sel in [
+                # 1. Bypass "Continue on this browser" / "Use Teams on the web" launcher
+                add_log("Checking for 'Continue on this browser' button...")
+                continue_selectors = [
                     "button#openTeamsInApp",
                     "a[data-tid='joinOnWeb']",
                     "button[data-tid='joinOnWeb']",
                     "button:has-text('Continue on this browser')",
                     "a:has-text('Continue on this browser')",
-                    "button:has-text('Use Teams on the web')"
-                ]:
+                    "button:has-text('Use Teams on the web')",
+                    "a:has-text('Use Teams on the web')"
+                ]
+
+                clicked_continue = False
+                for sel in continue_selectors:
                     try:
                         btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=1500):
+                        if await btn.is_visible(timeout=2000):
                             await btn.click()
-                            add_log("Selected web browser join.")
+                            add_log(f"Clicked 'Continue on browser' ({sel})")
+                            clicked_continue = True
                             break
                     except Exception:
                         continue
 
-                await page.wait_for_timeout(4000)
+                await page.wait_for_timeout(5000)
 
                 # 2. Enter Guest Name
                 add_log("Filling Guest Name...")
                 session_data["status"] = "entering_name"
 
-                for sel in [
+                name_selectors = [
                     "input#username",
                     "input[aria-label*='Enter name']",
                     "input[aria-label*='name']",
                     "input[placeholder*='name']",
                     "input[data-tid='prejoin-display-name-input']",
                     "input[type='text']"
-                ]:
+                ]
+
+                filled_name = False
+                for sel in name_selectors:
                     try:
                         inp = page.locator(sel).first
-                        if await inp.is_visible(timeout=2000):
+                        if await inp.is_visible(timeout=2500):
                             await inp.fill(bot_name)
                             add_log(f"Filled Guest Name '{bot_name}'")
+                            filled_name = True
                             break
                     except Exception:
                         continue
 
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(2000)
 
-                # 3. Join Call via Direct Click + JS Event Trigger + Keyboard Enter
-                add_log("Triggering Join request...")
+                # 3. Explicitly Locate and Click 'Join Now'
+                add_log("Attempting to click 'Join Now' button...")
                 session_data["status"] = "joining_call"
 
-                # Execute JS click + Keyboard Enter + Playwright click simultaneously for maximum reliability
-                try:
-                    await page.evaluate("""
-                        () => {
-                            const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                            const joinBtn = btns.find(b => b.innerText && b.innerText.toLowerCase().includes('join'));
-                            if (joinBtn) {
-                                joinBtn.click();
-                            }
-                        }
-                    """)
-                except Exception:
-                    pass
-
+                join_clicked = False
                 join_selectors = [
                     "button#join-now",
                     "button[data-tid='prejoin-join-button']",
                     "button:has-text('Join now')",
                     "button:has-text('Join')",
                     "div[role='button']:has-text('Join now')",
-                    "div[role='button']:has-text('Join')"
+                    "div[role='button']:has-text('Join')",
+                    "button.join-btn"
                 ]
 
-                for sel in join_selectors:
+                for attempt in range(5):
+                    # Try JS click first
                     try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=1500):
-                            await btn.click(force=True)
+                        res = await page.evaluate("""
+                            () => {
+                                const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                                const jBtn = btns.find(b => b.innerText && b.innerText.toLowerCase().includes('join'));
+                                if (jBtn) {
+                                    jBtn.click();
+                                    return true;
+                                }
+                                return false;
+                            }
+                        """)
+                        if res:
+                            add_log("JS clicked 'Join' button successfully.")
+                            join_clicked = True
                             break
                     except Exception:
-                        continue
+                        pass
 
-                add_log("Join request dispatched! Bot is active in call / lobby.")
-                session_data["status"] = "waiting_in_lobby_or_joined"
+                    # Try Playwright selector click
+                    for sel in join_selectors:
+                        try:
+                            btn = page.locator(sel).first
+                            if await btn.is_visible(timeout=1500):
+                                await btn.click(force=True)
+                                add_log(f"Playwright clicked 'Join' using selector: {sel}")
+                                join_clicked = True
+                                break
+                        except Exception:
+                            continue
 
-                # Keep session active
-                while session_id in self.active_sessions:
+                    if join_clicked:
+                        break
+                    await page.wait_for_timeout(2000)
+
+                if join_clicked:
+                    add_log("Join request dispatched! Bot is waiting in Teams lobby/call.")
+                    session_data["status"] = "waiting_in_lobby_or_joined"
+                else:
+                    page_title = await page.title()
+                    add_log(f"Could not locate Join button. Current page title: '{page_title}'")
+                    session_data["status"] = "error"
+
+                # Keep session active if joined
+                while session_id in self.active_sessions and session_data["status"] != "error":
                     await asyncio.sleep(2)
 
                 await browser.close()
