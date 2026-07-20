@@ -9,10 +9,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Set global Playwright browser location accessible by non-root user
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Copy requirements and install
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-RUN playwright install chromium --with-deps
+RUN playwright install chromium --with-deps && chmod -R 777 /ms-playwright
 
 # Copy application files
 COPY . /app
