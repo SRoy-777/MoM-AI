@@ -1,9 +1,28 @@
+import os
 import logging
 import asyncio
 import re
+import tempfile
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger("mom_ai.bot")
+
+def _ensure_black_y4m_file() -> str:
+    """Generates a 320x240 solid black Y4M video frame file dynamically at runtime."""
+    tmp_dir = tempfile.gettempdir()
+    y4m_path = os.path.join(tmp_dir, "black_stream.y4m")
+    if not os.path.exists(y4m_path):
+        try:
+            w, h = 320, 240
+            header = f'YUV4MPEG2 W{w} H{h} F30:1 Ip A1:1 C420jpeg\nFRAME\n'.encode('ascii')
+            y_plane = bytes([16]) * (w * h)
+            u_plane = bytes([128]) * ((w // 2) * (h // 2))
+            v_plane = bytes([128]) * ((w // 2) * (h // 2))
+            with open(y4m_path, 'wb') as f:
+                f.write(header + y_plane + u_plane + v_plane)
+        except Exception as e:
+            logger.error(f"Failed to generate black.y4m file: {e}")
+    return y4m_path
 
 class TeamsBotService:
     def __init__(self):
@@ -50,13 +69,17 @@ class TeamsBotService:
 
         try:
             from playwright.async_api import async_playwright
+
+            black_y4m_path = _ensure_black_y4m_file()
+
             async with async_playwright() as p:
-                add_log("Launching Chromium browser with media streams...")
+                add_log("Launching Chromium browser with black video stream...")
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
                         "--use-fake-ui-for-media-stream",
                         "--use-fake-device-for-media-stream",
+                        f"--use-file-for-fake-video-capture={black_y4m_path}",
                         "--use-file-for-fake-audio-capture=/dev/null",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
