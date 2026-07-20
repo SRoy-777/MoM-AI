@@ -57,6 +57,7 @@ Attendees: {attendees}
 {transcript if transcript.strip() else "No audio transcript available. Rely on Human Notes."}
 
 === INSTRUCTIONS & REQUIREMENTS ===
+0. Multilingual Support: The transcript or notes may contain mixed languages (e.g. Bengali, Banglish, and English). Seamlessly detect and understand all languages, and translate all Bengali or code-switched points into clear, professional corporate English for the final output.
 1. Executive Summary: Provide a 3-4 sentence high-level executive summary of what was discussed and accomplished.
 2. Agenda & Discussion Highlights: Group key discussions into logical topics/chapters with clear bullet points.
 3. Key Decisions Made: Highlight binding decisions, policy updates, or approvals made during the meeting.
