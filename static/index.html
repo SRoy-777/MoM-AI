@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoM AI - Executive Meeting Assistant & Action Tracker</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- App Header -->
+    <header class="app-header">
+        <div class="brand">
+            <div class="brand-icon">⚡</div>
+            <div class="brand-text">MoM AI</div>
+            <span class="brand-badge">4-Hour Meeting Ready</span>
+        </div>
+
+        <nav class="nav-tabs">
+            <button class="nav-btn active" data-tab="tab-live">
+                <span>🎙️</span> Live Teams Capture
+            </button>
+            <button class="nav-btn" data-tab="tab-copilot">
+                <span>📝</span> Human Co-Pilot
+            </button>
+            <button class="nav-btn" data-tab="tab-report">
+                <span>📊</span> MoM Executive Report
+            </button>
+        </nav>
+
+        <div class="api-bar">
+            <div class="api-input-wrap">
+                <input type="password" id="gemini-key-input" class="api-input" placeholder="Google Gemini Free API Key...">
+            </div>
+            <button id="save-key-btn" class="btn-secondary" style="padding: 0.5rem 0.8rem; font-size: 0.8rem;">Save Key</button>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="app-container">
+
+        <!-- TAB 1: LIVE TEAMS CAPTURE -->
+        <section id="tab-live" class="tab-content active">
+            <div class="grid-2col">
+                <!-- Audio Control Box -->
+                <div class="glass-card">
+                    <h2 class="card-title">🎙️ Unrecorded Teams Meeting Audio Stream</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                        Capture system or Teams tab audio in real-time. No Teams meeting recording permissions required.
+                    </p>
+
+                    <div class="audio-control-box">
+                        <button id="toggle-record-btn" class="record-btn" title="Start/Stop Capture">
+                            <span>🎙️</span>
+                        </button>
+                        <div id="recording-status" style="font-weight: 600; margin-top: 0.5rem;">Ready to Capture</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;" id="timer-display">00:00:00</div>
+                        <canvas id="waveform" class="waveform-canvas"></canvas>
+                    </div>
+
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Optional: Teams Guest Bot Join</h4>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="teams-url-input" class="input-field" placeholder="Paste MS Teams Meeting Link..." style="flex: 1;">
+                            <button id="join-bot-btn" class="btn-secondary">Join Bot</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Transcript Stream -->
+                <div class="glass-card">
+                    <h2 class="card-title">📜 Real-Time Speech-to-Text Transcript</h2>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                        Live transcript streamed locally via Web Speech API. Handles up to 50,000+ words (~4 hours).
+                    </p>
+                    <div id="transcript-container" class="transcript-box">
+                        <div class="transcript-entry" style="color: var(--text-dim);">
+                            [System] Audio capture idle. Click the microphone button to start listening...
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 1rem;">
+                        <span id="word-count" style="font-size: 0.85rem; color: var(--text-muted);">Word count: 0 words (~0 tokens)</span>
+                        <button id="clear-transcript-btn" class="btn-secondary" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">Clear</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: HUMAN CO-PILOT STUDIO -->
+        <section id="tab-copilot" class="tab-content">
+            <div class="glass-card">
+                <h2 class="card-title">📝 Human Assistant Co-Pilot Studio</h2>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Tasked note-takers can type live meeting observations and explicitly define action items, assignees, departments, and deadlines.
+                </p>
+
+                <!-- Task Ingestion Matrix Form -->
+                <div style="background: rgba(0, 0, 0, 0.2); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--secondary);">➕ Direct Task / Action Item Entry</h3>
+                    <form id="task-matrix-form" class="task-form">
+                        <input type="text" id="task-desc" class="input-field" placeholder="Task description / deliverable..." required>
+                        <input type="text" id="task-assignee" class="input-field" placeholder="Assignee (e.g. John Doe)">
+                        <select id="task-dept" class="select-field">
+                            <option value="General">General / Mgmt</option>
+                            <option value="Engineering">Engineering & IT</option>
+                            <option value="Marketing">Marketing & PR</option>
+                            <option value="Sales">Sales & Business</option>
+                            <option value="Finance">Finance & Accounts</option>
+                            <option value="HR">HR & Admin</option>
+                            <option value="Operations">Operations</option>
+                        </select>
+                        <input type="text" id="task-timeframe" class="input-field" placeholder="Timeframe (e.g. Friday EOD, Q3 W2)">
+                        <select id="task-priority" class="select-field">
+                            <option value="High">High Priority</option>
+                            <option value="Medium" selected>Medium Priority</option>
+                            <option value="Low">Low Priority</option>
+                        </select>
+                        <button type="submit" class="btn-primary" style="padding: 0.75rem 1rem;">Add Task</button>
+                    </form>
+
+                    <!-- Active Task List -->
+                    <table class="custom-table" id="co-pilot-task-table">
+                        <thead>
+                            <tr>
+                                <th>Action Item</th>
+                                <th>Assignee</th>
+                                <th>Department</th>
+                                <th>Timeframe</th>
+                                <th>Priority</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="task-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Human Scratchpad Notes -->
+                <div>
+                    <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--primary);">🖊️ Assistant Live Scratchpad Notes</h3>
+                    <textarea id="human-notes-textarea" class="input-field" style="width: 100%; height: 180px; font-family: inherit; line-height: 1.6;" placeholder="Type informal notes, key bullet points, or agenda shifts here... The AI will fuse these notes into the final MoM."></textarea>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: MOM EXECUTIVE REPORT -->
+        <section id="tab-report" class="tab-content">
+            <div class="glass-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h2 class="card-title" style="margin-bottom: 0.25rem;">📊 Executive Minutes of Meeting (MoM)</h2>
+                        <p style="color: var(--text-muted); font-size: 0.85rem;">Generated with Gemini 2.0 Flash 1M Context Window</p>
+                    </div>
+
+                    <div style="display: flex; gap: 0.75rem;">
+                        <button id="generate-mom-btn" class="btn-primary">
+                            <span>✨</span> Generate MoM with AI
+                        </button>
+                        <button id="export-docx-btn" class="btn-secondary" style="display: none;">📄 Export DOCX</button>
+                        <button id="export-print-btn" class="btn-secondary" style="display: none;">🖨️ Print / PDF</button>
+                    </div>
+                </div>
+
+                <!-- Metadata Inputs -->
+                <div style="display: grid; grid-template-columns: 2fr 1fr 2fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <input type="text" id="meeting-title-input" class="input-field" placeholder="Meeting Title (e.g. Q3 Strategic Planning)">
+                    <input type="date" id="meeting-date-input" class="input-field">
+                    <input type="text" id="meeting-attendees-input" class="input-field" placeholder="Attendees (e.g. CEO, CTO, Product Team)">
+                </div>
+
+                <!-- Report Output Canvas -->
+                <div id="mom-report-output" style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 2rem;">
+                    <div style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                        Click "Generate MoM with AI" to summarize your live meeting transcript & human assistant notes into an executive report.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- JS Scripts -->
+    <script src="/static/js/audio_recorder.js"></script>
+    <script src="/static/js/task_matrix.js"></script>
+    <script src="/static/js/mom_viewer.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
