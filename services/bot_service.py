@@ -51,12 +51,13 @@ class TeamsBotService:
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                add_log("Launching Chromium browser with camera disabled...")
+                add_log("Launching Chromium browser with media streams...")
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
                         "--use-fake-ui-for-media-stream",
-                        "--disable-video-capture",
+                        "--use-fake-device-for-media-stream",
+                        "--use-file-for-fake-audio-capture=/dev/null",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
                         "--disable-dev-shm-usage",
@@ -64,19 +65,19 @@ class TeamsBotService:
                     ]
                 )
                 context = await browser.new_context(
-                    permissions=["microphone"],
+                    permissions=["microphone", "camera"],
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                     viewport={"width": 1280, "height": 720}
                 )
                 page = await context.new_page()
 
-                add_log(f"Navigating to Teams URL: {meeting_url[:60]}...")
+                add_log(f"Navigating to Teams URL...")
                 session_data["status"] = "navigating"
                 await page.goto(meeting_url, wait_until="domcontentloaded", timeout=40000)
                 await page.wait_for_timeout(4000)
 
                 # 1. Bypass "Continue on this browser" / "Use Teams on the web" launcher
-                add_log("Checking for 'Continue on this browser' button...")
+                add_log("Bypassing launcher prompts...")
                 continue_selectors = [
                     "button#openTeamsInApp",
                     "a[data-tid='joinOnWeb']",
@@ -92,32 +93,40 @@ class TeamsBotService:
                         btn = page.locator(sel).first
                         if await btn.is_visible(timeout=2000):
                             await btn.click()
-                            add_log(f"Clicked 'Continue on browser' ({sel})")
+                            add_log("Clicked 'Continue on browser'")
                             break
                     except Exception:
                         continue
 
                 await page.wait_for_timeout(5000)
 
-                # 2. Turn OFF Camera & Mute Microphone
-                add_log("Ensuring camera is OFF & mic is muted...")
-                for sel in [
-                    "div[data-tid='toggle-video']",
-                    "button[data-tid='video-toggle']",
-                    "div[role='checkbox'][aria-label*='camera']",
-                    "div[role='checkbox'][aria-label*='video']",
-                    "button[aria-label*='camera']"
-                ]:
-                    try:
-                        tgl = page.locator(sel).first
-                        if await tgl.is_visible(timeout=1500):
-                            checked = await tgl.get_attribute("aria-checked")
-                            if checked == "true":
-                                await tgl.click()
-                                add_log("Turned camera OFF.")
-                            break
-                    except Exception:
-                        continue
+                # 2. Turn OFF Camera & Mute Microphone via JS DOM manipulation
+                add_log("Turning OFF camera & muting mic in Teams pre-join...")
+                try:
+                    await page.evaluate("""
+                        () => {
+                            // Turn off camera toggle
+                            const camBtns = Array.from(document.querySelectorAll('div[data-tid="toggle-video"], button[data-tid="video-toggle"], div[role="checkbox"]'));
+                            camBtns.forEach(b => {
+                                const checked = b.getAttribute('aria-checked');
+                                if (checked === 'true' || checked === null) {
+                                    b.click();
+                                }
+                            });
+                            // Mute mic toggle
+                            const micBtns = Array.from(document.querySelectorAll('div[data-tid="toggle-mute"], button[data-tid="microphone-toggle"]'));
+                            micBtns.forEach(b => {
+                                const checked = b.getAttribute('aria-checked');
+                                if (checked === 'true' || checked === null) {
+                                    b.click();
+                                }
+                            });
+                        }
+                    """)
+                except Exception:
+                    pass
+
+                await page.wait_for_timeout(1000)
 
                 # 3. Enter Guest Name
                 add_log("Filling Guest Name...")
