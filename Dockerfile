@@ -12,6 +12,7 @@ WORKDIR /app
 # Copy requirements and install
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN playwright install chromium --with-deps
 
 # Copy application files
 COPY . /app
