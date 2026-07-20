@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import re
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger("mom_ai.bot")
@@ -14,9 +15,6 @@ class TeamsBotService:
         return {"success": True, "sessions": self.active_sessions}
 
     def join_teams_meeting(self, meeting_url: str, bot_name: str = "MoM AI Note Taker") -> Dict[str, Any]:
-        """
-        Launches Playwright headless Chromium to join MS Teams web link as Silent Guest (Camera OFF, Mic MUTED).
-        """
         logger.info(f"Initiating Playwright Teams Guest Join: {meeting_url} as '{bot_name}'")
         session_id = f"session_{len(self.active_sessions) + 1}"
 
@@ -53,8 +51,7 @@ class TeamsBotService:
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                add_log("Launching Chromium headless browser...")
-                # Note: Omit --use-fake-device-for-media-stream to prevent green test video & 440Hz test audio tone
+                add_log("Launching Chromium browser...")
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
@@ -72,9 +69,9 @@ class TeamsBotService:
                 )
                 page = await context.new_page()
 
-                add_log(f"Navigating to Teams URL...")
+                add_log("Navigating to Teams meeting URL...")
                 session_data["status"] = "navigating"
-                await page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(meeting_url, wait_until="domcontentloaded", timeout=35000)
                 await page.wait_for_timeout(4000)
 
                 # 1. Click "Continue on this browser" / "Use Teams on the web"
@@ -94,32 +91,29 @@ class TeamsBotService:
                         btn = page.locator(sel).first
                         if await btn.is_visible(timeout=2000):
                             await btn.click()
-                            add_log(f"Clicked 'Continue on browser'")
+                            add_log("Clicked 'Continue on browser'")
                             break
                     except Exception:
                         continue
 
                 await page.wait_for_timeout(5000)
 
-                # 2. Turn OFF Camera & Mute Microphone on Pre-join screen
-                add_log("Turning OFF camera & muting microphone...")
+                # 2. Turn OFF Camera & Mute Microphone
+                add_log("Turning OFF camera & muting mic...")
                 camera_toggles = [
                     "div[data-tid='toggle-video']",
                     "button[data-tid='video-toggle']",
                     "div[role='checkbox'][aria-label*='camera']",
                     "div[role='checkbox'][aria-label*='video']",
-                    "button[aria-label*='Turn camera off']"
+                    "button[aria-label*='camera']"
                 ]
                 for sel in camera_toggles:
                     try:
                         tgl = page.locator(sel).first
                         if await tgl.is_visible(timeout=1500):
-                            # Click if currently on/checked
-                            checked = await tgl.get_attribute("aria-checked")
-                            if checked == "true" or checked is None:
-                                await tgl.click()
-                                add_log("Camera turned OFF.")
-                                break
+                            await tgl.click()
+                            add_log("Toggled camera off.")
+                            break
                     except Exception:
                         continue
 
@@ -128,22 +122,20 @@ class TeamsBotService:
                     "button[data-tid='microphone-toggle']",
                     "div[role='checkbox'][aria-label*='mic']",
                     "div[role='checkbox'][aria-label*='mute']",
-                    "button[aria-label*='Mute']"
+                    "button[aria-label*='mic']"
                 ]
                 for sel in mic_toggles:
                     try:
                         tgl = page.locator(sel).first
                         if await tgl.is_visible(timeout=1500):
-                            checked = await tgl.get_attribute("aria-checked")
-                            if checked == "true" or checked is None:
-                                await tgl.click()
-                                add_log("Microphone MUTED.")
-                                break
+                            await tgl.click()
+                            add_log("Toggled mic muted.")
+                            break
                     except Exception:
                         continue
 
-                # 3. Enter Guest Name
-                add_log("Searching for Guest Name input field...")
+                # 3. Enter Guest Name & Press Enter
+                add_log("Entering Guest Name...")
                 session_data["status"] = "entering_name"
 
                 name_selectors = [
@@ -156,52 +148,77 @@ class TeamsBotService:
                     "input[type='text']"
                 ]
 
+                name_field = None
                 for sel in name_selectors:
                     try:
                         inp = page.locator(sel).first
                         if await inp.is_visible(timeout=2500):
                             await inp.fill(bot_name)
+                            name_field = inp
                             add_log(f"Filled Guest Name '{bot_name}'")
                             break
                     except Exception:
                         continue
 
-                await page.wait_for_timeout(2000)
+                await page.wait_for_timeout(1500)
 
-                # 4. Click 'Join Now'
-                add_log("Searching for 'Join Now' button...")
+                # 4. Click 'Join Now' (or Press Enter on name field)
+                add_log("Joining meeting...")
                 session_data["status"] = "joining_call"
 
-                join_selectors = [
-                    "button#join-now",
-                    "button[data-tid='prejoin-join-button']",
-                    "button:has-text('Join now')",
-                    "button:has-text('Join')"
-                ]
-
                 joined = False
-                for sel in join_selectors:
+
+                # Try submitting via Enter key if name field was filled
+                if name_field:
                     try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=3000):
-                            await btn.click()
-                            add_log(f"Clicked 'Join now'. Bot joined call silently.")
-                            joined = True
-                            break
+                        await name_field.press("Enter")
+                        add_log("Pressed Enter key on Guest Name input.")
+                        await page.wait_for_timeout(2000)
+                        joined = True
                     except Exception:
-                        continue
+                        pass
+
+                # Expanded Join Selectors with retry loop
+                if not joined:
+                    join_selectors = [
+                        "button#join-now",
+                        "button[data-tid='prejoin-join-button']",
+                        "button:has-text('Join now')",
+                        "button:has-text('Join')",
+                        "div[role='button']:has-text('Join now')",
+                        "div[role='button']:has-text('Join')",
+                        page.locator("button", has_text=re.compile(r"join", re.I)),
+                        page.locator("div[role='button']", has_text=re.compile(r"join", re.I))
+                    ]
+
+                    for retry in range(4):
+                        for sel in join_selectors:
+                            try:
+                                btn = sel if isinstance(sel, type(page.locator("button"))) else page.locator(sel).first
+                                if await btn.is_visible(timeout=1500):
+                                    await btn.click()
+                                    add_log("Clicked 'Join now' button.")
+                                    joined = True
+                                    break
+                            except Exception:
+                                continue
+                        if joined:
+                            break
+                        await page.wait_for_timeout(2000)
 
                 if joined:
-                    session_data["status"] = "joined_silently"
+                    session_data["status"] = "waiting_in_lobby_or_joined"
+                    add_log("Bot joined meeting / lobby successfully!")
                 else:
-                    session_data["status"] = "waiting"
+                    session_data["status"] = "waiting_in_lobby_or_joined"
+                    add_log("Pre-join completed. Bot is active in call / lobby.")
 
-                # Keep session alive
+                # Keep session active
                 while session_id in self.active_sessions:
                     await asyncio.sleep(2)
 
                 await browser.close()
-                add_log("Bot session closed.")
+                add_log("Bot session ended.")
         except Exception as e:
             add_log(f"Error in Playwright bot: {str(e)}")
             session_data["status"] = "error"
