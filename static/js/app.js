@@ -108,9 +108,31 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
 
             if (data.success) {
-                alert(data.message);
-                joinBotBtn.textContent = "Bot Active";
-                joinBotBtn.style.background = "var(--success)";
+                joinBotBtn.textContent = "Bot Launching...";
+                joinBotBtn.style.background = "var(--primary)";
+
+                const sessionId = data.session_id;
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch(`/api/teams-bot/status?session_id=${sessionId}`);
+                        const statusData = await statusRes.json();
+                        if (statusData.success && statusData.session) {
+                            const sess = statusData.session;
+                            if (sess.status === "waiting_in_lobby_or_joined") {
+                                joinBotBtn.textContent = "Waiting in Lobby / Joined";
+                                joinBotBtn.style.background = "var(--success)";
+                                clearInterval(pollInterval);
+                            } else if (sess.status === "error") {
+                                joinBotBtn.textContent = "Join Failed";
+                                joinBotBtn.style.background = "var(--danger)";
+                                clearInterval(pollInterval);
+                            } else {
+                                const lastLog = sess.log && sess.log.length > 0 ? sess.log[sess.log.length - 1] : sess.status;
+                                joinBotBtn.textContent = lastLog.substring(0, 30) + "...";
+                            }
+                        }
+                    } catch (err) {}
+                }, 2000);
             } else {
                 alert("Error joining Teams meeting: " + data.error);
                 joinBotBtn.textContent = "Join Bot";

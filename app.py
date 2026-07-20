@@ -101,6 +101,10 @@ async def join_bot_endpoint(meeting_url: str = Form(...), bot_name: str = Form("
     res = bot_service.join_teams_meeting(meeting_url, bot_name)
     return res
 
+@app.get("/api/teams-bot/status")
+async def bot_status_endpoint(session_id: str = ""):
+    return bot_service.get_status(session_id)
+
 @app.post("/api/teams-bot/leave")
 async def leave_bot_endpoint(session_id: str = Form(...)):
     res = bot_service.leave_teams_meeting(session_id)
