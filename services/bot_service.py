@@ -51,13 +51,12 @@ class TeamsBotService:
         try:
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
-                add_log("Launching Chromium browser...")
+                add_log("Launching Chromium browser with camera disabled...")
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
                         "--use-fake-ui-for-media-stream",
-                        "--use-fake-device-for-media-stream",
-                        "--use-file-for-fake-audio-capture=/dev/null",
+                        "--disable-video-capture",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
                         "--disable-dev-shm-usage",
@@ -88,21 +87,39 @@ class TeamsBotService:
                     "a:has-text('Use Teams on the web')"
                 ]
 
-                clicked_continue = False
                 for sel in continue_selectors:
                     try:
                         btn = page.locator(sel).first
                         if await btn.is_visible(timeout=2000):
                             await btn.click()
                             add_log(f"Clicked 'Continue on browser' ({sel})")
-                            clicked_continue = True
                             break
                     except Exception:
                         continue
 
                 await page.wait_for_timeout(5000)
 
-                # 2. Enter Guest Name
+                # 2. Turn OFF Camera & Mute Microphone
+                add_log("Ensuring camera is OFF & mic is muted...")
+                for sel in [
+                    "div[data-tid='toggle-video']",
+                    "button[data-tid='video-toggle']",
+                    "div[role='checkbox'][aria-label*='camera']",
+                    "div[role='checkbox'][aria-label*='video']",
+                    "button[aria-label*='camera']"
+                ]:
+                    try:
+                        tgl = page.locator(sel).first
+                        if await tgl.is_visible(timeout=1500):
+                            checked = await tgl.get_attribute("aria-checked")
+                            if checked == "true":
+                                await tgl.click()
+                                add_log("Turned camera OFF.")
+                            break
+                    except Exception:
+                        continue
+
+                # 3. Enter Guest Name
                 add_log("Filling Guest Name...")
                 session_data["status"] = "entering_name"
 
@@ -115,21 +132,19 @@ class TeamsBotService:
                     "input[type='text']"
                 ]
 
-                filled_name = False
                 for sel in name_selectors:
                     try:
                         inp = page.locator(sel).first
                         if await inp.is_visible(timeout=2500):
                             await inp.fill(bot_name)
                             add_log(f"Filled Guest Name '{bot_name}'")
-                            filled_name = True
                             break
                     except Exception:
                         continue
 
                 await page.wait_for_timeout(2000)
 
-                # 3. Explicitly Locate and Click 'Join Now'
+                # 4. Explicitly Locate and Click 'Join Now'
                 add_log("Attempting to click 'Join Now' button...")
                 session_data["status"] = "joining_call"
 
