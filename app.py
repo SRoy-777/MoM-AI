@@ -4,6 +4,14 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
+# Auto-load .env file if present
+if os.path.exists(".env"):
+    with open(".env", "r") as f:
+        for line in f:
+            if "=" in line and not line.startswith("#"):
+                k, v = line.strip().split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
