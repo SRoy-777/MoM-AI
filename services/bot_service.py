@@ -134,7 +134,7 @@ class TeamsBotService:
                     except Exception:
                         continue
 
-                # 3. Enter Guest Name & Press Enter
+                # 3. Enter Guest Name
                 add_log("Entering Guest Name...")
                 session_data["status"] = "entering_name"
 
@@ -148,70 +148,54 @@ class TeamsBotService:
                     "input[type='text']"
                 ]
 
-                name_field = None
                 for sel in name_selectors:
                     try:
                         inp = page.locator(sel).first
                         if await inp.is_visible(timeout=2500):
                             await inp.fill(bot_name)
-                            name_field = inp
                             add_log(f"Filled Guest Name '{bot_name}'")
                             break
                     except Exception:
                         continue
 
-                await page.wait_for_timeout(1500)
+                await page.wait_for_timeout(2000)
 
-                # 4. Click 'Join Now' (or Press Enter on name field)
-                add_log("Joining meeting...")
+                # 4. Explicitly Find & Click 'Join Now' Button
+                add_log("Clicking 'Join Now' button...")
                 session_data["status"] = "joining_call"
 
-                joined = False
+                join_selectors = [
+                    "button#join-now",
+                    "button[data-tid='prejoin-join-button']",
+                    "button:has-text('Join now')",
+                    "button:has-text('Join')",
+                    "div[role='button']:has-text('Join now')",
+                    "div[role='button']:has-text('Join')",
+                    "button.join-btn"
+                ]
 
-                # Try submitting via Enter key if name field was filled
-                if name_field:
-                    try:
-                        await name_field.press("Enter")
-                        add_log("Pressed Enter key on Guest Name input.")
-                        await page.wait_for_timeout(2000)
-                        joined = True
-                    except Exception:
-                        pass
+                clicked_join = False
+                for retry in range(5):
+                    for sel in join_selectors:
+                        try:
+                            btn = page.locator(sel).first
+                            if await btn.is_visible(timeout=2000):
+                                await btn.click()
+                                add_log(f"Successfully clicked 'Join now' ({sel})!")
+                                clicked_join = True
+                                break
+                        except Exception:
+                            continue
+                    if clicked_join:
+                        break
+                    await page.wait_for_timeout(2000)
 
-                # Expanded Join Selectors with retry loop
-                if not joined:
-                    join_selectors = [
-                        "button#join-now",
-                        "button[data-tid='prejoin-join-button']",
-                        "button:has-text('Join now')",
-                        "button:has-text('Join')",
-                        "div[role='button']:has-text('Join now')",
-                        "div[role='button']:has-text('Join')",
-                        page.locator("button", has_text=re.compile(r"join", re.I)),
-                        page.locator("div[role='button']", has_text=re.compile(r"join", re.I))
-                    ]
-
-                    for retry in range(4):
-                        for sel in join_selectors:
-                            try:
-                                btn = sel if isinstance(sel, type(page.locator("button"))) else page.locator(sel).first
-                                if await btn.is_visible(timeout=1500):
-                                    await btn.click()
-                                    add_log("Clicked 'Join now' button.")
-                                    joined = True
-                                    break
-                            except Exception:
-                                continue
-                        if joined:
-                            break
-                        await page.wait_for_timeout(2000)
-
-                if joined:
+                if clicked_join:
                     session_data["status"] = "waiting_in_lobby_or_joined"
-                    add_log("Bot joined meeting / lobby successfully!")
+                    add_log("Join request sent! Bot is waiting in Teams lobby/call.")
                 else:
-                    session_data["status"] = "waiting_in_lobby_or_joined"
-                    add_log("Pre-join completed. Bot is active in call / lobby.")
+                    session_data["status"] = "error"
+                    add_log("Failed to locate 'Join now' button on Teams pre-join page.")
 
                 # Keep session active
                 while session_id in self.active_sessions:
